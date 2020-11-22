@@ -1,0 +1,32 @@
+load "Element_P3";
+int n;
+
+func f = 8*pi^2*cos(2*pi*x)*cos(2*pi*y);
+func uD = cos(2*pi*x)*cos(2*pi*y);
+func uEx = cos(2*pi*x)*cos(2*pi*y);
+
+for (n=10; n<=640 ; n = 2*n){
+  mesh Th = square(n,n);
+  fespace Vh(Th,P1);
+  Vh uh, vh;
+
+  problem poisson(uh,vh) =
+    int2d(Th)(dx(uh)*dx(vh) +
+        dy(uh)*dy(vh))
+    - int2d(Th)(f*vh)
+    + on(1,uh=uD)
+    + on(2,uh=uD)
+    + on(3,uh=uD)
+    + on(4,uh=uD)
+    ;
+
+  real start = clock();
+  poisson;
+
+  real errorL2 = sqrt(int2d(Th)(abs(uh-uEx)^2));
+  cout << "n: " << n << "\n";
+  cout << "CPU time: " << clock() - start << endl;
+  cout << "Error L2: " << errorL2 << endl;
+  cout << "-----------" << endl;
+  plot(Th,uh,fill=true,ps="Th.eps");
+}
