@@ -1,0 +1,108 @@
+//
+// Example of a rectangular cantilever model in FreeFem ++
+// From :
+//
+// R. Font et F. Periago, « The Finite Element Method with FreeFem++ for beginners », vol. 7, nᵒ 4, p. 20.
+//
+// and modify to read parameters from the command line to define the shape of the cantilever beam.
+//
+//
+// (c) pascal.lafon@utt.fr  / November 2020.
+
+
+// include the getARGV function to read values of arguments specified on command line
+include "getARGV.idp";
+
+// Get the value from -l value1 -h value2 -r value3
+// Here 100, 20 and 6 are default values.
+// l,h,r are variables intialized with values read from getARGV.
+real l=getARGV("l",100);
+real h=getARGV("h",20);
+real r=getARGV("r",6);
+
+
+// Domain and mesh (dimension in mm)
+// l,h,and r are used to define the geometry of meshed domain.
+border Lower(t=0,l){x=t;y=-h/2;label=1;}; //Lower side
+border Right(t=-h/2, h/2){x=l;y=t;label=2;}; //Right side
+border Upper(t=0,l){x=l-t;y=h/2;label=3;}; //Upper side
+border Left(t=-h/2,h/2){x=0;y=-t;label=4;}; //Left side
+border Circle(t=0, 2*pi){x=l/3+r*cos(t); y=r*sin(t);}; //Interior circle
+
+// We define the mesh from the boundaries (clockwise orientation)
+mesh Omega=buildmesh(Lower(100)+Right(10)+Upper(100)+Left(10)+Circle(-40));
+
+
+//Some constants and physical parameters
+//E: Young’s modulus, nu: Poisson’s ratio
+real E = 21e4; // MPa
+real nu = 0.28; 
+
+//Lame coefficients
+real lambda = E*nu/((1+nu)*(1-2*nu));
+real mu= E/(2*(1+nu)); 
+
+// Lame "equivalent" coef for plane stress model :
+real lambdaps = (2*lambda*mu)/(lambda + 2*mu);
+
+
+real Load = -1; //Load on right side of the beam (N/mm)
+
+
+fespace Displacement(Omega,P2);   // Bilinear elements for displacement
+fespace Stress(Omega,P2);         // Bilinear elements for stress
+
+Displacement ux,uy,vx,vy;
+Stress sigmaxx,sigmayy,sigmaxy,sigmavm;
+
+// Definition of 2 macros :
+// Macro for strain :
+macro epsilon(ux,uy)
+    [
+    dx(ux),
+    dy(uy),
+    (dy(ux)+dx(uy))/2
+    ]// eps_xx, eps_yy, eps_xy
+    
+// Macro for stress :
+macro sigma(ux,uy)
+    [
+        (lambdaps+2.*mu)*epsilon(ux,uy)[0] + lambdaps*epsilon(ux,uy)[1],
+        lambdaps*epsilon(ux,uy)[0] + (lambdaps+2.*mu)*epsilon(ux,uy)[1],
+        2.*mu*epsilon(ux,uy)[2]
+    ] // Stress sig_xx,sig_yy, sig_xy   
+
+// Macro for divergence of displacement :
+macro div(ux,uy) (dx(ux)+dy(uy)) // EOM
+
+//Solving the problem in the weak variational form
+solve lame([ux,uy],[vx,vy])= int2d(Omega)(
+                             lambdaps*div(ux,uy)*div(vx,vy)
+                           + 2.*mu*( epsilon(ux,uy)'*epsilon(vx,vy) ) )
+                           // Dirichlet conditions of left boundary -> fixed.
+                           + on(Left,ux=0,uy=0)
+                           // Neumamm condition of right boudary -> vertical load
+                           - int1d(Omega,Right)(Load*vy)
+                           ;
+    
+// Stresses :
+// Here the displacement fied ux,uy is known (solve previously)
+// and stresses are compute via macro "sigma" using also macro "epsilon"
+sigmaxx = sigma(ux,uy)[0];
+sigmayy = sigma(ux,uy)[1];
+sigmaxy = sigma(ux,uy)[2];
+
+//Von Mises stress
+sigmavm = sqrt(sigmaxx*sigmaxx - sigmaxx*sigmayy + sigmayy*sigmayy + 3*sigmaxy*sigmaxy);
+
+// Compute the surface of the meshed domain :
+real Area=int2d(Omega)(1.);
+
+// Store abs value of displacement fied in vx,vy to extract proper maximal value (whatever the sign of displacement)
+vx = abs(ux);
+vy = abs(uy);
+real Umax = sqrt(vx[].max^2 + vy[].max^2); //Max. Displacement
+
+cout << "\nMax von Mises Stress " << sigmavm[].max << endl;
+cout << "Max displacement " << Umax << endl;
+cout << "Area             " << Area << endl;
